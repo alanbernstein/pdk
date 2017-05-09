@@ -14,6 +14,7 @@ import (
 
 	_ "net/http/pprof"
 
+	opentracing "github.com/opentracing/opentracing-go"
 	pcli "github.com/pilosa/go-pilosa"
 	"github.com/pilosa/pdk"
 	"github.com/pilosa/pilosa"
@@ -78,6 +79,7 @@ type Main struct {
 	PilosaHost  string
 	URLFile     string
 	Concurrency int
+	mainSpan    opentracing.Span
 	Index       string
 	BufferSize  int
 
@@ -109,6 +111,7 @@ func NewMain() *Main {
 		Concurrency: 1,
 		nexter:      &Nexter{},
 		urls:        make([]string, 0),
+		mainSpan:    opentracing.GlobalTracer().StartSpan("taxi main"),
 
 		totalRecs:     &Counter{},
 		skippedRecs:   &Counter{},
@@ -126,11 +129,14 @@ func NewMain() *Main {
 }
 
 func (m *Main) Run() error {
+	defer m.mainSpan.Finish()
 	go func() {
 		log.Println(http.ListenAndServe("localhost:6060", nil))
 	}()
 
+	urlReadSpan := opentracing.GlobalTracer().StartSpan("read urls", opentracing.ChildOf(m.mainSpan.Context()))
 	err := m.readURLs()
+	urlReadSpan.Finish()
 	if err != nil {
 		return err
 	}
@@ -244,6 +250,8 @@ func (m *Main) printStats() *time.Ticker {
 }
 
 func (m *Main) fetch(urls <-chan string, records chan<- Record) {
+	fetchSpan := opentracing.GlobalTracer().StartSpan("fetch", opentracing.ChildOf(m.mainSpan.Context()))
+	defer fetchSpan.Finish()
 	for url := range urls {
 		var typ rune
 		if strings.Contains(url, "green") {
@@ -320,6 +328,9 @@ type BitFrame struct {
 }
 
 func (m *Main) parseMapAndPost(records <-chan Record) {
+	parseSpan := opentracing.GlobalTracer().StartSpan("parse/map/post", opentracing.ChildOf(m.mainSpan.Context()))
+	defer parseSpan.Finish()
+
 Records:
 	for record := range records {
 		fields, ok := record.Clean()

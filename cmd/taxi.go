@@ -5,13 +5,31 @@ import (
 	"log"
 	"time"
 
+	opentracing "github.com/opentracing/opentracing-go"
 	"github.com/pilosa/pdk/usecase/taxi"
 	"github.com/spf13/cobra"
+	"github.com/uber/jaeger-client-go/config"
 )
 
 var TaxiMain *taxi.Main
 
+func configureTracer() {
+	cfg := config.Configuration{
+		Sampler: &config.SamplerConfig{
+			Type:  "const",
+			Param: 1,
+		},
+		Reporter: &config.ReporterConfig{
+			LogSpans:            false,
+			BufferFlushInterval: 1 * time.Second,
+		},
+	}
+	tracer, _, _ := cfg.New("pdk-taxi")
+	opentracing.SetGlobalTracer(tracer)
+}
+
 func NewTaxiCommand(stdin io.Reader, stdout, stderr io.Writer) *cobra.Command {
+	configureTracer()
 	TaxiMain = taxi.NewMain()
 	taxiCommand := &cobra.Command{
 		Use:   "taxi",
